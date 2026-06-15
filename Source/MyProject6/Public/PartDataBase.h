@@ -5,6 +5,18 @@
 #include "PartDatabase.generated.h"
 
 class UTexture2D;
+class AActor;
+
+UENUM(BlueprintType)
+enum class EPartCategory : uint8
+{
+    All UMETA(DisplayName = "All"),
+    Mount UMETA(DisplayName = "Mount"),
+    Post UMETA(DisplayName = "Post"),
+    Cage UMETA(DisplayName = "Cage"),
+    Cube UMETA(DisplayName = "Cube"),
+    Mirror UMETA(DisplayName = "Mirror")
+};
 
 USTRUCT(BlueprintType)
 struct FPartInfoData
@@ -22,6 +34,12 @@ struct FPartInfoData
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
     UTexture2D* PartImage = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    TSubclassOf<AActor> PartActorClass;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    EPartCategory Category = EPartCategory::All;
 };
 
 UCLASS(BlueprintType)

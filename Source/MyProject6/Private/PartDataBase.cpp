@@ -1,6 +1,9 @@
 #include "PartDatabase.h"
 
-bool UPartDatabase::FindPartInfo(const FString& MeshName, FPartInfoData& OutPartInfo) const
+bool UPartDatabase::FindPartInfo(
+    const FString& MeshName,
+    FPartInfoData& OutPartInfo
+) const
 {
     for (const TPair<FString, FPartInfoData>& Pair : Parts)
     {
