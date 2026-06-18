@@ -74,4 +74,8 @@ public:
     void ShowPartInfo();
     void TogglePauseMenu();
     void ToggleAnimation();
+
+    UFUNCTION(BlueprintCallable)
+    void ClosePartInfo();
+
 };

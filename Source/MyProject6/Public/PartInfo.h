@@ -32,4 +32,6 @@ public:
         const FString& NewURL,
         UTexture2D* NewImage
     );
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = "true"))
+    AActor* SetObject = nullptr;
 };

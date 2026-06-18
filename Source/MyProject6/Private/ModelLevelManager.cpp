@@ -203,7 +203,7 @@ void AModelLevelManager::ShowPartInfo()
 {
     if (!HitActor)
     {
-        UE_LOG(LogTemp, Warning, TEXT("No HitActor"));
+        ClosePartInfo();
         return;
     }
 
@@ -319,5 +319,13 @@ void AModelLevelManager::TogglePauseMenu()
         PC->SetInputMode(FInputModeGameOnly());
 
         PC->SetShowMouseCursor(false);
+    }
+}
+void AModelLevelManager::ClosePartInfo()
+{
+    if (CurrentPartInfoWidget)
+    {
+        CurrentPartInfoWidget->RemoveFromParent();
+        CurrentPartInfoWidget = nullptr;
     }
 }

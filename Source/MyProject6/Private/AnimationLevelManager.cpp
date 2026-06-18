@@ -196,6 +196,11 @@ void AAnimationLevelManager::UnhoverActor(AActor* OldActor)
 
 void AAnimationLevelManager::ShowPartInfo()
 {
+    if (!HitActor)
+    {
+        ClosePartInfo();
+        return;
+    }
     if (!HitActor || !PartInfoWidgetClass) return;
 
     UStaticMeshComponent* MeshComp =
@@ -284,5 +289,13 @@ void AAnimationLevelManager::ToggleAnimation()
     {
         SequencePlayer->Play();
         bIsPlaying = true;
+    }
+}
+void AAnimationLevelManager::ClosePartInfo()
+{
+    if (CurrentPartInfoWidget)
+    {
+        CurrentPartInfoWidget->RemoveFromParent();
+        CurrentPartInfoWidget = nullptr;
     }
 }

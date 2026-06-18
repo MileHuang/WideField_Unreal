@@ -73,4 +73,8 @@ public:
 
 	UPROPERTY()
 	UUserWidget* TipsWidget;
+
+	UFUNCTION(BlueprintCallable)
+	void ClosePartInfo();
+
 };
