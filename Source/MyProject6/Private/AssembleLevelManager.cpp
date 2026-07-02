@@ -1,14 +1,18 @@
 #include "AssembleLevelManager.h"
+
 #include "AssemblyPart.h"
 #include "PartDatabase.h"
 #include "PartInfo.h"
 
-#include "Kismet/GameplayStatics.h"
-#include "GameFramework/PlayerController.h"
-#include "Components/StaticMeshComponent.h"
 #include "Blueprint/UserWidget.h"
-#include "TimerManager.h"
+#include "Components/StaticMeshComponent.h"
+#include "GameFramework/PlayerController.h"
 #include "InputCoreTypes.h"
+#include "Kismet/GameplayStatics.h"
+#include "TimerManager.h"
+#include "AssembleLevelManager.h"
+#include "AssemblyPart.h"
+#include "AssemblySaveGame.h"
 
 AAssembleLevelManager::AAssembleLevelManager()
 {
@@ -26,48 +30,26 @@ void AAssembleLevelManager::BeginPlay()
 
     if (InputComponent)
     {
+
+        InputComponent->BindKey(EKeys::Delete, IE_Pressed, this, &AAssembleLevelManager::DeleteSelected);
+
+        InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AAssembleLevelManager::TogglePauseMenu);
+        InputComponent->BindKey(EKeys::M, IE_Pressed, this, &AAssembleLevelManager::TogglePauseMenu);
+
+        InputComponent->BindKey(EKeys::L, IE_Pressed, this, &AAssembleLevelManager::ToggleLaser);
         InputComponent->BindKey(
-            EKeys::E,
+            EKeys::S,
             IE_Pressed,
             this,
-            &AAssembleLevelManager::BeginDrag
+            &AAssembleLevelManager::SaveAssembly
         );
 
         InputComponent->BindKey(
-            EKeys::E,
-            IE_Released,
-            this,
-            &AAssembleLevelManager::EndDrag
-        );
-
-        InputComponent->BindKey(
-            EKeys::Delete,
+            EKeys::O,
             IE_Pressed,
             this,
-            &AAssembleLevelManager::DeleteSelected
+            &AAssembleLevelManager::LoadAssembly
         );
-
-        InputComponent->BindKey(
-            EKeys::Escape,
-            IE_Pressed,
-            this,
-            &AAssembleLevelManager::TogglePauseMenu
-        );
-
-        InputComponent->BindKey(
-            EKeys::M,
-            IE_Pressed,
-            this,
-            &AAssembleLevelManager::TogglePauseMenu
-        );
-
-        InputComponent->BindKey(
-            EKeys::L,
-            IE_Pressed,
-            this,
-            &AAssembleLevelManager::ToggleLaser
-        );
-
         FInputKeyBinding& LeftMouseBinding =
             InputComponent->BindKey(
                 EKeys::LeftMouseButton,
@@ -78,6 +60,7 @@ void AAssembleLevelManager::BeginPlay()
 
         LeftMouseBinding.bConsumeInput = false;
     }
+
 
     if (SpawnWidgetClass)
     {
@@ -92,6 +75,7 @@ void AAssembleLevelManager::BeginPlay()
             SpawnWidget->AddToViewport();
         }
     }
+
 
     if (TipsWidgetClass)
     {
@@ -111,18 +95,13 @@ void AAssembleLevelManager::BeginPlay()
         this,
         &AAssembleLevelManager::HideAllLasers
     );
+    LoadAssembly();
 }
-
 void AAssembleLevelManager::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
 
     TraceMouse();
-
-    if (bIsDragging)
-    {
-        UpdateDrag();
-    }
 }
 
 void AAssembleLevelManager::TraceMouse()
@@ -135,7 +114,11 @@ void AAssembleLevelManager::TraceMouse()
     float MouseX = 0.f;
     float MouseY = 0.f;
 
-    if (!PC->GetMousePosition(MouseX, MouseY)) return;
+    if (!PC->GetMousePosition(MouseX, MouseY))
+    {
+        HitActor = nullptr;
+        return;
+    }
 
     FVector WorldLocation;
     FVector WorldDirection;
@@ -148,7 +131,7 @@ void AAssembleLevelManager::TraceMouse()
     );
 
     FVector Start = WorldLocation;
-    FVector End = Start + WorldDirection * 2000.f;
+    FVector End = Start + WorldDirection * TraceDistance;
 
     FHitResult Hit;
 
@@ -192,7 +175,6 @@ void AAssembleLevelManager::HoverActor(AActor* NewActor)
 
     MeshComp->bDisallowNanite = true;
     MeshComp->MarkRenderStateDirty();
-
     MeshComp->SetOverlayMaterial(HoverOverlayMaterial);
 }
 
@@ -206,183 +188,26 @@ void AAssembleLevelManager::UnhoverActor(AActor* OldActor)
     if (!MeshComp) return;
 
     MeshComp->SetOverlayMaterial(nullptr);
-
     MeshComp->bDisallowNanite = false;
     MeshComp->MarkRenderStateDirty();
 }
 
-void AAssembleLevelManager::BeginDrag()
+void AAssembleLevelManager::DeleteSelected()
 {
     if (!HitActor) return;
 
-    MoveActor = HitActor;
-    bIsDragging = true;
-
-    DragPlaneZ = MoveActor->GetActorLocation().Z;
-
-    FVector MousePoint;
-
-    if (GetMousePointOnDragPlane(MousePoint))
-    {
-        DragOffset =
-            MoveActor->GetActorLocation() - MousePoint;
-    }
-    else
-    {
-        DragOffset = FVector::ZeroVector;
-    }
-
-    AAssemblyPart* Part =
-        Cast<AAssemblyPart>(MoveActor);
+    AAssemblyPart* Part = Cast<AAssemblyPart>(HitActor);
 
     if (Part)
     {
-        Part->SetDragging(true);
+        Part->ClearAllSnapConnections();
     }
 
-    APlayerController* PC =
-        UGameplayStatics::GetPlayerController(this, 0);
+    HitActor->Destroy();
 
-    if (PC)
-    {
-        float MouseX = 0.f;
-        float MouseY = 0.f;
-
-        PC->GetMousePosition(MouseX, MouseY);
-
-        DragStartMouseY = MouseY;
-        DragStartActorZ = MoveActor->GetActorLocation().Z;
-    }
+    HitActor = nullptr;
+    LastHoverActor = nullptr;
 }
-
-void AAssembleLevelManager::EndDrag()
-{
-    bIsDragging = false;
-
-    AAssemblyPart* Part =
-        Cast<AAssemblyPart>(MoveActor);
-
-    if (Part)
-    {
-        Part->SetDragging(false);
-    }
-
-    MoveActor = nullptr;
-}
-
-void AAssembleLevelManager::UpdateDrag()
-{
-    if (!MoveActor) return;
-
-    APlayerController* PC =
-        UGameplayStatics::GetPlayerController(this, 0);
-
-    if (!PC) return;
-
-    bool bVerticalMode =
-        PC->IsInputKeyDown(EKeys::LeftShift) ||
-        PC->IsInputKeyDown(EKeys::RightShift);
-
-    if (bVerticalMode)
-    {
-        float MouseX = 0.f;
-        float MouseY = 0.f;
-
-        if (!PC->GetMousePosition(MouseX, MouseY)) return;
-
-        float DeltaY =
-            DragStartMouseY - MouseY;
-
-        FVector NewLocation =
-            MoveActor->GetActorLocation();
-
-        NewLocation.Z =
-            DragStartActorZ + DeltaY * VerticalDragSpeed;
-
-        MoveActor->SetActorLocation(NewLocation);
-    }
-    else
-    {
-        FVector MousePoint;
-
-        if (!GetMousePointOnDragPlane(MousePoint)) return;
-
-        FVector NewLocation =
-            MousePoint + DragOffset;
-
-        MoveActor->SetActorLocation(NewLocation);
-    }
-}
-
-bool AAssembleLevelManager::GetMousePointOnDragPlane(
-    FVector& OutPoint
-) const
-{
-    APlayerController* PC =
-        UGameplayStatics::GetPlayerController(GetWorld(), 0);
-
-    if (!PC) return false;
-
-    float MouseX = 0.f;
-    float MouseY = 0.f;
-
-    if (!PC->GetMousePosition(MouseX, MouseY)) return false;
-
-    FVector WorldLocation;
-    FVector WorldDirection;
-
-    PC->DeprojectScreenPositionToWorld(
-        MouseX,
-        MouseY,
-        WorldLocation,
-        WorldDirection
-    );
-
-    if (FMath::IsNearlyZero(WorldDirection.Z))
-    {
-        return false;
-    }
-
-    float T =
-        (DragPlaneZ - WorldLocation.Z) / WorldDirection.Z;
-
-    if (T < 0.f)
-    {
-        return false;
-    }
-
-    OutPoint =
-        WorldLocation + WorldDirection * T;
-
-    return true;
-}
-
-void AAssembleLevelManager::DeleteSelected()
-{
-    AActor* ActorToDelete =
-        MoveActor ? MoveActor : HitActor;
-
-    if (!ActorToDelete) return;
-
-    ActorToDelete->Destroy();
-
-    if (ActorToDelete == HitActor)
-    {
-        HitActor = nullptr;
-    }
-
-    if (ActorToDelete == LastHoverActor)
-    {
-        LastHoverActor = nullptr;
-    }
-
-    if (ActorToDelete == MoveActor)
-    {
-        MoveActor = nullptr;
-        bIsDragging = false;
-    }
-}
-
 void AAssembleLevelManager::TogglePauseMenu()
 {
     APlayerController* PC =
@@ -419,7 +244,6 @@ void AAssembleLevelManager::TogglePauseMenu()
 
 void AAssembleLevelManager::ToggleSpawnWidget()
 {
-
     if (!SpawnWidget)
     {
         if (!SpawnWidgetClass) return;
@@ -488,10 +312,17 @@ void AAssembleLevelManager::ToggleLaser()
     bLaserPressed = !bLaserPressed;
 }
 
+void AAssembleLevelManager::ClosePartInfo()
+{
+    if (CurrentPartInfoWidget)
+    {
+        CurrentPartInfoWidget->RemoveFromParent();
+        CurrentPartInfoWidget = nullptr;
+    }
+}
+
 void AAssembleLevelManager::ShowPartInfo()
 {
-    UE_LOG(LogTemp, Warning, TEXT("ShowPartInfo called"));
-
     if (!HitActor)
     {
         ClosePartInfo();
@@ -557,14 +388,156 @@ void AAssembleLevelManager::ShowPartInfo()
     Widget->AddToViewport(20);
 
     CurrentPartInfoWidget = Widget;
-
-    UE_LOG(LogTemp, Warning, TEXT("PartInfo Widget Added"));
 }
-void AAssembleLevelManager::ClosePartInfo()
+void AAssembleLevelManager::SaveAssembly()
 {
-    if (CurrentPartInfoWidget)
+    if (!PartDatabase)
     {
-        CurrentPartInfoWidget->RemoveFromParent();
-        CurrentPartInfoWidget = nullptr;
+        UE_LOG(LogTemp, Warning, TEXT("Save failed: PartDatabase is null"));
+        return;
     }
+
+    UAssemblySaveGame* SaveGame =
+        Cast<UAssemblySaveGame>(
+            UGameplayStatics::CreateSaveGameObject(
+                UAssemblySaveGame::StaticClass()
+            )
+        );
+
+    if (!SaveGame) return;
+
+    TArray<AActor*> Parts;
+
+    UGameplayStatics::GetAllActorsOfClass(
+        GetWorld(),
+        AAssemblyPart::StaticClass(),
+        Parts
+    );
+
+    for (AActor* Actor : Parts)
+    {
+        FString PartName =
+            GetPartNameFromActor(Actor);
+
+        if (PartName.IsEmpty())
+        {
+            continue;
+        }
+
+        FAssemblyPartSaveData Data;
+        Data.PartName = PartName;
+        Data.Transform = Actor->GetActorTransform();
+
+        SaveGame->SavedParts.Add(Data);
+    }
+
+    bool bSuccess =
+        UGameplayStatics::SaveGameToSlot(
+            SaveGame,
+            SaveSlotName,
+            0
+        );
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("SaveAssembly %s, Count=%d"),
+        bSuccess ? TEXT("Success") : TEXT("Failed"),
+        SaveGame->SavedParts.Num());
+}
+void AAssembleLevelManager::LoadAssembly()
+{
+    if (!PartDatabase)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Load failed: PartDatabase is null"));
+        return;
+    }
+
+    if (!UGameplayStatics::DoesSaveGameExist(SaveSlotName, 0))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("No save file found"));
+        return;
+    }
+
+    UAssemblySaveGame* SaveGame =
+        Cast<UAssemblySaveGame>(
+            UGameplayStatics::LoadGameFromSlot(
+                SaveSlotName,
+                0
+            )
+        );
+
+    if (!SaveGame) return;
+
+    TArray<AActor*> CurrentParts;
+
+    UGameplayStatics::GetAllActorsOfClass(
+        GetWorld(),
+        AAssemblyPart::StaticClass(),
+        CurrentParts
+    );
+
+    for (AActor* Actor : CurrentParts)
+    {
+        if (Actor)
+        {
+            Actor->Destroy();
+        }
+    }
+
+    for (const FAssemblyPartSaveData& Data : SaveGame->SavedParts)
+    {
+        if (!PartDatabase->Parts.Contains(Data.PartName))
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("Part not found in database: %s"),
+                *Data.PartName);
+            continue;
+        }
+
+        FPartInfoData PartData =
+            PartDatabase->Parts[Data.PartName];
+
+        if (!PartData.PartActorClass)
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("ActorClass missing for: %s"),
+                *Data.PartName);
+            continue;
+        }
+
+        GetWorld()->SpawnActor<AActor>(
+            PartData.PartActorClass,
+            Data.Transform
+        );
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("LoadAssembly finished, Count=%d"),
+        SaveGame->SavedParts.Num());
+}
+FString AAssembleLevelManager::GetPartNameFromActor(AActor* Actor) const
+{
+    if (!Actor || !PartDatabase)
+    {
+        return TEXT("");
+    }
+
+    UStaticMeshComponent* MeshComp =
+        Actor->FindComponentByClass<UStaticMeshComponent>();
+
+    if (!MeshComp || !MeshComp->GetStaticMesh())
+    {
+        return TEXT("");
+    }
+
+    FString MeshName =
+        MeshComp->GetStaticMesh()->GetName();
+
+    FPartInfoData PartData;
+
+    if (PartDatabase->FindPartInfo(MeshName, PartData))
+    {
+        return PartData.PartName;
+    }
+
+    return TEXT("");
 }

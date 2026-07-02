@@ -59,7 +59,11 @@ public:
         USnapPointComponent* NewBoardSnapPoint
     );
 
-    UFUNCTION(BlueprintCallable, Category = "Plane")
+    UPROPERTY()
+    FVector LastPlaneOrigin = FVector::ZeroVector;
+
+    UPROPERTY()
+    bool bHasLastPlaneOrigin = false;
     void ClearMovingActor();
 
     void ApplyPlaneConstraint();

@@ -48,6 +48,16 @@ void UPlaneConstraintComponent::SetMovingActorWithSnapPoints(
     {
         BoardSnapPoint->bIsSlideConnection = true;
     }
+    AActor* Owner = GetOwner();
+
+    USceneComponent* AComp =
+        Owner ? Cast<USceneComponent>(CornerA.GetComponent(Owner)) : nullptr;
+
+    if (AComp)
+    {
+        LastPlaneOrigin = AComp->GetComponentLocation();
+        bHasLastPlaneOrigin = true;
+    }
 
     UE_LOG(LogTemp, Warning,
         TEXT("Plane constraint started: %s"),
@@ -78,6 +88,7 @@ void UPlaneConstraintComponent::ClearMovingActor()
     MovingSnapPoint = nullptr;
     BoardSnapPoint = nullptr;
     bIsPlaneActive = false;
+    bHasLastPlaneOrigin = false;
 }
 
 void UPlaneConstraintComponent::ApplyPlaneConstraint()
@@ -85,12 +96,7 @@ void UPlaneConstraintComponent::ApplyPlaneConstraint()
     if (!bIsPlaneActive) return;
     if (!MovingActor) return;
     if (!MovingSnapPoint) return;
-    AAssemblyPart* MovingPart = Cast<AAssemblyPart>(MovingActor);
 
-    if (!MovingPart || !MovingPart->bIsBeingDragged)
-    {
-        return;
-    }
     AActor* Owner = GetOwner();
     if (!Owner) return;
 
@@ -112,6 +118,26 @@ void UPlaneConstraintComponent::ApplyPlaneConstraint()
     FVector A = AComp->GetComponentLocation();
     FVector B = BComp->GetComponentLocation();
     FVector D = DComp->GetComponentLocation();
+
+    if (bHasLastPlaneOrigin)
+    {
+        FVector PlaneDelta = A - LastPlaneOrigin;
+
+        if (!PlaneDelta.IsNearlyZero())
+        {
+            MovingActor->AddActorWorldOffset(PlaneDelta);
+        }
+    }
+
+    LastPlaneOrigin = A;
+    bHasLastPlaneOrigin = true;
+
+    AAssemblyPart* MovingPart = Cast<AAssemblyPart>(MovingActor);
+
+    if (!MovingPart || !MovingPart->bIsBeingDragged)
+    {
+        return;
+    }
 
     FVector XVector = B - A;
     FVector YVector = D - A;

@@ -273,3 +273,26 @@ void AAssemblyPart::SetDragging(bool bDragging)
 {
     bIsBeingDragged = bDragging;
 }
+
+void AAssemblyPart::ClearAllSnapConnections()
+{
+    for (USnapPointComponent* MyPoint : MySnapPoints)
+    {
+        if (!MyPoint) continue;
+
+        USnapPointComponent* OtherPoint = MyPoint->ConnectedSnapPoint;
+
+        if (OtherPoint)
+        {
+            OtherPoint->bIsConnected = false;
+            OtherPoint->bIsSlideConnection = false;
+            OtherPoint->ConnectedSnapPoint = nullptr;
+        }
+
+        MyPoint->bIsConnected = false;
+        MyPoint->bIsSlideConnection = false;
+        MyPoint->ConnectedSnapPoint = nullptr;
+    }
+
+    DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+}

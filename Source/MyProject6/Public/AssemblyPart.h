@@ -27,6 +27,8 @@ public:
     UPROPERTY(BlueprintReadOnly)
     bool bIsBeingDragged = false;
 
+    UFUNCTION(BlueprintCallable, Category = "Assembly")
+    void ClearAllSnapConnections();
 private:
     TArray<USnapPointComponent*> MySnapPoints;
 

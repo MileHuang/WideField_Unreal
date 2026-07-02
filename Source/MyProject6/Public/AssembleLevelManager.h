@@ -3,11 +3,13 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Blueprint/UserWidget.h"
+#include "AssemblySaveGame.h"
 #include "AssembleLevelManager.generated.h"
+
 class UPartDatabase;
-class AAssemblyPart;
 class UMaterialInterface;
 class UPartInfo;
+
 UCLASS()
 class MYPROJECT6_API AAssembleLevelManager : public AActor
 {
@@ -23,7 +25,7 @@ public:
     virtual void Tick(float DeltaTime) override;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Database")
-    UPartDatabase* PartDatabase;
+    UPartDatabase* PartDatabase = nullptr;
 
     UPROPERTY(BlueprintReadOnly, Category = "Selection")
     AActor* HitActor = nullptr;
@@ -31,45 +33,11 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "Selection")
     AActor* LastHoverActor = nullptr;
 
-    UPROPERTY(BlueprintReadOnly, Category = "Drag")
-    AActor* MoveActor = nullptr;
-
-    UPROPERTY(BlueprintReadOnly, Category = "Drag")
-    bool bIsDragging = false;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace")
+    float TraceDistance = 2000.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hover")
-    UMaterialInterface* HoverOverlayMaterial;
-
-    UFUNCTION(BlueprintCallable)
-    void TraceMouse();
-
-    UFUNCTION(BlueprintCallable)
-    void BeginDrag();
-
-    UFUNCTION(BlueprintCallable)
-    void EndDrag();
-
-    UFUNCTION(BlueprintCallable)
-    void DeleteSelected();
-
-    UPROPERTY(BlueprintReadOnly, Category = "Drag")
-    float DragPlaneZ = 0.f;
-
-    UPROPERTY(BlueprintReadOnly, Category = "Drag")
-    FVector DragOffset = FVector::ZeroVector;
-
-    bool GetMousePointOnDragPlane(FVector& OutPoint) const;
-    UFUNCTION(BlueprintCallable)
-    void UpdateDrag();
-
-    UPROPERTY(BlueprintReadOnly, Category = "Drag")
-    float DragStartMouseY = 0.f;
-
-    UPROPERTY(BlueprintReadOnly, Category = "Drag")
-    float DragStartActorZ = 0.f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Drag")
-    float VerticalDragSpeed = 2.f;
+    UMaterialInterface* HoverOverlayMaterial = nullptr;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
     TSubclassOf<UUserWidget> PauseWidgetClass;
@@ -102,6 +70,12 @@ public:
     bool bLaserPressed = true;
 
     UFUNCTION(BlueprintCallable)
+    void TraceMouse();
+
+    UFUNCTION(BlueprintCallable)
+    void DeleteSelected();
+
+    UFUNCTION(BlueprintCallable)
     void TogglePauseMenu();
 
     UFUNCTION(BlueprintCallable)
@@ -116,11 +90,20 @@ public:
     UFUNCTION(BlueprintCallable)
     void ShowPartInfo();
 
-    UPROPERTY(BlueprintReadWrite, EditAnywhere, meta = (ExposeOnSpawn = "true"))
-    AActor* SetObject = nullptr;
     UFUNCTION(BlueprintCallable)
     void ClosePartInfo();
 
+    UFUNCTION(BlueprintCallable, Category = "Save")
+    void SaveAssembly();
+
+    UFUNCTION(BlueprintCallable, Category = "Save")
+    void LoadAssembly();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+    FString SaveSlotName = TEXT("AssemblySaveSlot");
+
+    UFUNCTION(BlueprintCallable, Category = "Save")
+    FString GetPartNameFromActor(AActor* Actor) const;
 private:
     void HoverActor(AActor* NewActor);
     void UnhoverActor(AActor* OldActor);
