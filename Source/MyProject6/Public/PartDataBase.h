@@ -54,4 +54,10 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Parts")
     bool FindPartInfo(const FString& MeshName, FPartInfoData& OutPartInfo) const;
+
+    UFUNCTION(BlueprintCallable, Category = "Parts")
+    bool FindPartByName(
+        const FString& PartName,
+        FPartInfoData& OutPartInfo
+    ) const;
 };

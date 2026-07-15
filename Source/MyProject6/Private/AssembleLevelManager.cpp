@@ -11,9 +11,13 @@
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
 #include "AssembleLevelManager.h"
-#include "AssemblyPart.h"
 #include "AssemblySaveGame.h"
-
+#include "SnapPointComponent.h"
+#include "SlideConstraintComponent.h"
+#include "PlaneConstraintComponent.h"
+#include "DeleteAllConfirmWidget.h"
+#include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
 AAssembleLevelManager::AAssembleLevelManager()
 {
     PrimaryActorTick.bCanEverTick = true;
@@ -30,7 +34,19 @@ void AAssembleLevelManager::BeginPlay()
 
     if (InputComponent)
     {
+        FInputKeyBinding DeleteAllBinding(
+            FInputChord(EKeys::Delete, true, false, false, false),
+            IE_Pressed
+        );
 
+        DeleteAllBinding.KeyDelegate.GetDelegateForManualSet().BindUObject(
+            this,
+            &AAssembleLevelManager::ShowDeleteAllConfirm
+        );
+
+        DeleteAllBinding.bConsumeInput = true;
+
+        InputComponent->KeyBindings.Add(DeleteAllBinding);
         InputComponent->BindKey(EKeys::Delete, IE_Pressed, this, &AAssembleLevelManager::DeleteSelected);
 
         InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AAssembleLevelManager::TogglePauseMenu);
@@ -103,7 +119,40 @@ void AAssembleLevelManager::Tick(float DeltaTime)
 
     TraceMouse();
 }
+FString AAssembleLevelManager::GetPartNameFromActor(AActor* Actor) const
+{
+    if (!Actor || !PartDatabase)
+    {
+        return TEXT("");
+    }
 
+    AAssemblyPart* Part = Cast<AAssemblyPart>(Actor);
+
+    if (Part && !Part->SavePartName.IsEmpty())
+    {
+        return Part->SavePartName;
+    }
+
+    UStaticMeshComponent* MeshComp =
+        Actor->FindComponentByClass<UStaticMeshComponent>();
+
+    if (!MeshComp || !MeshComp->GetStaticMesh())
+    {
+        return TEXT("");
+    }
+
+    FString MeshName =
+        MeshComp->GetStaticMesh()->GetName();
+
+    FPartInfoData PartData;
+
+    if (PartDatabase->FindPartInfo(MeshName, PartData))
+    {
+        return PartData.PartName;
+    }
+
+    return TEXT("");
+}
 void AAssembleLevelManager::TraceMouse()
 {
     APlayerController* PC =
@@ -194,11 +243,17 @@ void AAssembleLevelManager::UnhoverActor(AActor* OldActor)
 
 void AAssembleLevelManager::DeleteSelected()
 {
+    APlayerController* PC =
+        UGameplayStatics::GetPlayerController(this, 0);
+
+    if (PC && PC->IsInputKeyDown(EKeys::LeftShift))
+    {
+        return;
+    }
+
     if (!HitActor) return;
 
-    AAssemblyPart* Part = Cast<AAssemblyPart>(HitActor);
-
-    if (Part)
+    if (AAssemblyPart* Part = Cast<AAssemblyPart>(HitActor))
     {
         Part->ClearAllSnapConnections();
     }
@@ -406,29 +461,83 @@ void AAssembleLevelManager::SaveAssembly()
 
     if (!SaveGame) return;
 
-    TArray<AActor*> Parts;
-
+    TArray<AActor*> Actors;
     UGameplayStatics::GetAllActorsOfClass(
         GetWorld(),
         AAssemblyPart::StaticClass(),
-        Parts
+        Actors
     );
 
-    for (AActor* Actor : Parts)
+    TMap<AActor*, FString> ActorIDMap;
+    int32 Index = 0;
+
+    for (AActor* Actor : Actors)
     {
-        FString PartName =
-            GetPartNameFromActor(Actor);
+        if (!Actor) continue;
+        if (Actor->IsChildActor()) continue;
+
+        FString PartName = GetPartNameFromActor(Actor);
 
         if (PartName.IsEmpty())
         {
+            UE_LOG(LogTemp, Warning,
+                TEXT("SKIP SAVE: %s no PartName"),
+                *Actor->GetName());
             continue;
         }
 
+        FString SaveID = FString::Printf(TEXT("Part_%d"), Index++);
+
         FAssemblyPartSaveData Data;
+        Data.SaveID = SaveID;
         Data.PartName = PartName;
         Data.Transform = Actor->GetActorTransform();
 
         SaveGame->SavedParts.Add(Data);
+        ActorIDMap.Add(Actor, SaveID);
+    }
+
+    for (AActor* Actor : Actors)
+    {
+        AAssemblyPart* Part = Cast<AAssemblyPart>(Actor);
+        if (!Part) continue;
+        if (!ActorIDMap.Contains(Actor)) continue;
+
+        TArray<USnapPointComponent*> SnapPoints;
+        Part->GetComponents<USnapPointComponent>(SnapPoints);
+
+        for (USnapPointComponent* Point : SnapPoints)
+        {
+            if (!Point || !Point->bIsConnected || !Point->ConnectedSnapPoint)
+            {
+                continue;
+            }
+
+            AActor* OtherActor =
+                Point->ConnectedSnapPoint->GetOwner();
+
+            if (!OtherActor || !ActorIDMap.Contains(OtherActor))
+            {
+                continue;
+            }
+
+            FString ThisID = ActorIDMap[Actor];
+            FString OtherID = ActorIDMap[OtherActor];
+
+            if (ThisID > OtherID)
+            {
+                continue;
+            }
+
+            FAssemblySnapConnectionSaveData Conn;
+            Conn.PartAID = ThisID;
+            Conn.SnapAName = Point->GetFName();
+            Conn.PartBID = OtherID;
+            Conn.SnapBName = Point->ConnectedSnapPoint->GetFName();
+            Conn.bIsSlideConnection = Point->bIsSlideConnection;
+
+            SaveGame->SavedConnections.Add(Conn);
+        }
     }
 
     bool bSuccess =
@@ -439,9 +548,10 @@ void AAssembleLevelManager::SaveAssembly()
         );
 
     UE_LOG(LogTemp, Warning,
-        TEXT("SaveAssembly %s, Count=%d"),
+        TEXT("SaveAssembly %s, Parts=%d Connections=%d"),
         bSuccess ? TEXT("Success") : TEXT("Failed"),
-        SaveGame->SavedParts.Num());
+        SaveGame->SavedParts.Num(),
+        SaveGame->SavedConnections.Num());
 }
 void AAssembleLevelManager::LoadAssembly()
 {
@@ -467,8 +577,9 @@ void AAssembleLevelManager::LoadAssembly()
 
     if (!SaveGame) return;
 
-    TArray<AActor*> CurrentParts;
+    ClosePartInfo();
 
+    TArray<AActor*> CurrentParts;
     UGameplayStatics::GetAllActorsOfClass(
         GetWorld(),
         AAssemblyPart::StaticClass(),
@@ -483,61 +594,567 @@ void AAssembleLevelManager::LoadAssembly()
         }
     }
 
+    TMap<FString, AAssemblyPart*> LoadedPartMap;
+
     for (const FAssemblyPartSaveData& Data : SaveGame->SavedParts)
     {
-        if (!PartDatabase->Parts.Contains(Data.PartName))
+        FPartInfoData PartData;
+
+        if (!PartDatabase->FindPartByName(Data.PartName, PartData))
         {
             UE_LOG(LogTemp, Warning,
-                TEXT("Part not found in database: %s"),
+                TEXT("Part not found by PartName: %s"),
                 *Data.PartName);
             continue;
         }
-
-        FPartInfoData PartData =
-            PartDatabase->Parts[Data.PartName];
 
         if (!PartData.PartActorClass)
         {
             UE_LOG(LogTemp, Warning,
-                TEXT("ActorClass missing for: %s"),
+                TEXT("ActorClass missing: %s"),
                 *Data.PartName);
             continue;
         }
 
-        GetWorld()->SpawnActor<AActor>(
-            PartData.PartActorClass,
-            Data.Transform
+        AAssemblyPart* NewPart =
+            GetWorld()->SpawnActor<AAssemblyPart>(
+                Cast<UClass>(PartData.PartActorClass),
+                Data.Transform
+            );
+
+        if (!NewPart)
+        {
+            continue;
+        }
+
+        NewPart->bDisableAutoSnap = true;
+        LoadedPartMap.Add(Data.SaveID, NewPart);
+    }
+
+    for (const FAssemblySnapConnectionSaveData& Conn : SaveGame->SavedConnections)
+    {
+        AAssemblyPart** PartAPtr = LoadedPartMap.Find(Conn.PartAID);
+        AAssemblyPart** PartBPtr = LoadedPartMap.Find(Conn.PartBID);
+
+        if (!PartAPtr || !PartBPtr) continue;
+
+        AAssemblyPart* PartA = *PartAPtr;
+        AAssemblyPart* PartB = *PartBPtr;
+
+        if (!PartA || !PartB) continue;
+
+        USnapPointComponent* SnapA =
+            PartA->FindSnapPointByName(Conn.SnapAName);
+
+        USnapPointComponent* SnapB =
+            PartB->FindSnapPointByName(Conn.SnapBName);
+
+        if (!SnapA || !SnapB)
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("Restore connection failed: missing snap point"));
+            continue;
+        }
+
+        RestoreSnapConnection(
+            PartA,
+            SnapA,
+            PartB,
+            SnapB,
+            Conn.bIsSlideConnection
         );
     }
 
+    FTimerHandle TimerHandle;
+
+    GetWorld()->GetTimerManager().SetTimer(
+        TimerHandle,
+        [LoadedPartMap]()
+        {
+            for (const TPair<FString, AAssemblyPart*>& Pair : LoadedPartMap)
+            {
+                if (IsValid(Pair.Value))
+                {
+                    Pair.Value->bDisableAutoSnap = false;
+                }
+            }
+        },
+        0.3f,
+        false
+    );
+
     UE_LOG(LogTemp, Warning,
-        TEXT("LoadAssembly finished, Count=%d"),
-        SaveGame->SavedParts.Num());
+        TEXT("LoadAssembly finished. Parts=%d Connections=%d"),
+        SaveGame->SavedParts.Num(),
+        SaveGame->SavedConnections.Num());
 }
-FString AAssembleLevelManager::GetPartNameFromActor(AActor* Actor) const
+void AAssembleLevelManager::RestoreSnapConnection(
+    AAssemblyPart* PartA,
+    USnapPointComponent* SnapA,
+    AAssemblyPart* PartB,
+    USnapPointComponent* SnapB,
+    bool bIsSlideConnection
+)
 {
-    if (!Actor || !PartDatabase)
+    if (!PartA || !PartB || !SnapA || !SnapB)
     {
-        return TEXT("");
+        return;
     }
 
-    UStaticMeshComponent* MeshComp =
-        Actor->FindComponentByClass<UStaticMeshComponent>();
+    SnapA->bIsConnected = true;
+    SnapB->bIsConnected = true;
 
-    if (!MeshComp || !MeshComp->GetStaticMesh())
+    SnapA->bIsSlideConnection = bIsSlideConnection;
+    SnapB->bIsSlideConnection = bIsSlideConnection;
+
+    SnapA->ConnectedSnapPoint = SnapB;
+    SnapB->ConnectedSnapPoint = SnapA;
+
+    UPlaneConstraintComponent* PlaneA =
+        PartA->FindComponentByClass<UPlaneConstraintComponent>();
+
+    UPlaneConstraintComponent* PlaneB =
+        PartB->FindComponentByClass<UPlaneConstraintComponent>();
+
+    USlideConstraintComponent* SlideA =
+        PartA->FindComponentByClass<USlideConstraintComponent>();
+
+    USlideConstraintComponent* SlideB =
+        PartB->FindComponentByClass<USlideConstraintComponent>();
+
+    if (bIsSlideConnection)
     {
-        return TEXT("");
+        if (PlaneA && SnapA->bUseSlideConstraint)
+        {
+            PlaneA->SetMovingActorWithSnapPoints(
+                PartB,
+                SnapB,
+                SnapA
+            );
+            return;
+        }
+
+        if (PlaneB && SnapB->bUseSlideConstraint)
+        {
+            PlaneB->SetMovingActorWithSnapPoints(
+                PartA,
+                SnapA,
+                SnapB
+            );
+            return;
+        }
+
+        if (SlideA && SnapA->bUseSlideConstraint)
+        {
+            SlideA->SetMovingActorWithSnapPoints(
+                PartB,
+                SnapB,
+                SnapA
+            );
+            return;
+        }
+
+        if (SlideB && SnapB->bUseSlideConstraint)
+        {
+            SlideB->SetMovingActorWithSnapPoints(
+                PartA,
+                SnapA,
+                SnapB
+            );
+            return;
+        }
+
+        return;
     }
 
-    FString MeshName =
-        MeshComp->GetStaticMesh()->GetName();
-
-    FPartInfoData PartData;
-
-    if (PartDatabase->FindPartInfo(MeshName, PartData))
+    if (SnapA->SnapRole == ESnapRole::Parent &&
+        SnapB->SnapRole == ESnapRole::Child)
     {
-        return PartData.PartName;
+        PartB->AttachToActor(
+            PartA,
+            FAttachmentTransformRules::KeepWorldTransform
+        );
+    }
+    else if (SnapA->SnapRole == ESnapRole::Child &&
+        SnapB->SnapRole == ESnapRole::Parent)
+    {
+        PartA->AttachToActor(
+            PartB,
+            FAttachmentTransformRules::KeepWorldTransform
+        );
+    }
+}
+
+void AAssembleLevelManager::ShowDeleteAllConfirm()
+{
+    if (DeleteAllConfirmWidget)
+    {
+        return;
     }
 
-    return TEXT("");
+    if (!DeleteAllConfirmWidgetClass)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("DeleteAllConfirmWidgetClass is null"));
+        return;
+    }
+
+    DeleteAllConfirmWidget =
+        CreateWidget<UDeleteAllConfirmWidget>(
+            GetWorld(),
+            DeleteAllConfirmWidgetClass
+        );
+
+    if (!DeleteAllConfirmWidget)
+    {
+        return;
+    }
+
+    DeleteAllConfirmWidget->AssembleManager = this;
+    DeleteAllConfirmWidget->AddToViewport(100);
+
+    APlayerController* PC =
+        UGameplayStatics::GetPlayerController(this, 0);
+
+    if (PC)
+    {
+        PC->SetShowMouseCursor(true);
+
+        FInputModeUIOnly InputMode;
+        InputMode.SetWidgetToFocus(
+            DeleteAllConfirmWidget->TakeWidget()
+        );
+
+        PC->SetInputMode(InputMode);
+    }
+}
+void AAssembleLevelManager::DeleteAllParts()
+{
+    ClosePartInfo();
+
+    TArray<AActor*> Parts;
+
+    UGameplayStatics::GetAllActorsOfClass(
+        GetWorld(),
+        AAssemblyPart::StaticClass(),
+        Parts
+    );
+
+    for (AActor* Actor : Parts)
+    {
+        AAssemblyPart* Part = Cast<AAssemblyPart>(Actor);
+
+        if (Part)
+        {
+            Part->ClearAllSnapConnections();
+        }
+    }
+
+    for (AActor* Actor : Parts)
+    {
+        if (IsValid(Actor))
+        {
+            Actor->Destroy();
+        }
+    }
+
+    HitActor = nullptr;
+    LastHoverActor = nullptr;
+
+    CloseDeleteAllConfirm();
+
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("Deleted all assembly parts. Count=%d"),
+        Parts.Num()
+    );
+}
+
+void AAssembleLevelManager::CloseDeleteAllConfirm()
+{
+    if (DeleteAllConfirmWidget)
+    {
+        DeleteAllConfirmWidget->RemoveFromParent();
+        DeleteAllConfirmWidget = nullptr;
+    }
+
+    APlayerController* PC =
+        UGameplayStatics::GetPlayerController(this, 0);
+
+    if (PC)
+    {
+        PC->SetShowMouseCursor(true);
+
+        FInputModeGameAndUI InputMode;
+        PC->SetInputMode(InputMode);
+    }
+}
+bool AAssembleLevelManager::GetSpawnLocationUnderMouse(
+    FVector& OutLocation
+) const
+{
+    APlayerController* PC =
+        UGameplayStatics::GetPlayerController(GetWorld(), 0);
+
+    if (!PC)
+    {
+        UE_LOG(LogTemp, Error, TEXT("GetSpawnLocation: PC null"));
+        return false;
+    }
+
+    if (!GEngine || !GEngine->GameViewport)
+    {
+        UE_LOG(LogTemp, Error, TEXT("GetSpawnLocation: GameViewport null"));
+        return false;
+    }
+
+    FVector2D MousePosition;
+
+    if (!GEngine->GameViewport->GetMousePosition(MousePosition))
+    {
+        UE_LOG(LogTemp, Error, TEXT("GetSpawnLocation: viewport mouse position failed"));
+        return false;
+    }
+
+    FVector WorldOrigin;
+    FVector WorldDirection;
+
+    if (!PC->DeprojectScreenPositionToWorld(
+        MousePosition.X,
+        MousePosition.Y,
+        WorldOrigin,
+        WorldDirection
+    ))
+    {
+        UE_LOG(LogTemp, Error, TEXT("GetSpawnLocation: deproject failed"));
+        return false;
+    }
+
+    OutLocation =
+        WorldOrigin +
+        WorldDirection.GetSafeNormal() * SpawnFallbackDistance;
+
+    return true;
+}
+
+void AAssembleLevelManager::BeginSpawnDrag(
+    TSubclassOf<AAssemblyPart> PartClass
+)
+{
+    if (!PartClass)
+    {
+        UE_LOG(LogTemp, Error, TEXT("BeginSpawnDrag: PartClass NULL"));
+        return;
+    }
+
+    CancelSpawnDrag();
+
+    APlayerController* PC =
+        UGameplayStatics::GetPlayerController(GetWorld(), 0);
+
+    if (!PC)
+    {
+        return;
+    }
+
+    FVector CameraLocation;
+    FRotator CameraRotation;
+
+    PC->GetPlayerViewPoint(
+        CameraLocation,
+        CameraRotation
+    );
+
+    const FVector InitialLocation =
+        CameraLocation +
+        CameraRotation.Vector() * SpawnPlaneDistance;
+
+    FActorSpawnParameters SpawnParams;
+
+    SpawnParams.SpawnCollisionHandlingOverride =
+        ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    SpawnPreviewActor =
+        GetWorld()->SpawnActor<AAssemblyPart>(
+            PartClass,
+            InitialLocation,
+            FRotator::ZeroRotator,
+            SpawnParams
+        );
+
+    if (!SpawnPreviewActor)
+    {
+        UE_LOG(LogTemp, Error, TEXT("Spawn FAILED"));
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("Spawn SUCCESS: %s  Location=%s"),
+            *SpawnPreviewActor->GetName(),
+            *SpawnPreviewActor->GetActorLocation().ToString());
+    }
+
+
+    bIsDraggingSpawnPart = true;
+
+    SpawnPreviewActor->SetActorHiddenInGame(false);
+    SpawnPreviewActor->SetActorEnableCollision(false);
+    SpawnPreviewActor->SetDragging(true);
+    SpawnPreviewActor->bDisableAutoSnap = true;
+
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("Begin spawn drag: %s"),
+        *SpawnPreviewActor->GetName()
+    );
+}
+
+void AAssembleLevelManager::UpdateSpawnDrag()
+{
+    if (!bIsDraggingSpawnPart || !IsValid(SpawnPreviewActor))
+    {
+        return;
+    }
+
+    FVector NewLocation;
+
+    if (!GetSpawnLocationUnderMouse(NewLocation))
+    {
+        return;
+    }
+
+    SpawnPreviewActor->SetActorLocation(
+        NewLocation,
+        false,
+        nullptr,
+        ETeleportType::TeleportPhysics
+    );
+}
+void AAssembleLevelManager::ConfirmSpawnDrag()
+{
+    if (!IsValid(SpawnPreviewActor))
+    {
+        UE_LOG(LogTemp, Error,
+            TEXT("ConfirmSpawnDrag: preview actor invalid"));
+
+        SpawnPreviewActor = nullptr;
+        bIsDraggingSpawnPart = false;
+        return;
+    }
+
+    SpawnPreviewActor->SetActorHiddenInGame(false);
+    SpawnPreviewActor->SetActorEnableCollision(true);
+    SpawnPreviewActor->SetDragging(false);
+    SpawnPreviewActor->bDisableAutoSnap = false;
+
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("Confirm spawn drag: %s Location=%s Scale=%s"),
+        *SpawnPreviewActor->GetName(),
+        *SpawnPreviewActor->GetActorLocation().ToString(),
+        *SpawnPreviewActor->GetActorScale3D().ToString()
+    );
+
+    SpawnPreviewActor = nullptr;
+    bIsDraggingSpawnPart = false;
+
+}
+
+void AAssembleLevelManager::UpdateSpawnDragFromScreenPosition(
+    FVector2D ScreenPosition
+)
+{
+    if (!bIsDraggingSpawnPart || !IsValid(SpawnPreviewActor))
+    {
+        return;
+    }
+
+    APlayerController* PC =
+        UGameplayStatics::GetPlayerController(GetWorld(), 0);
+
+    if (!PC)
+    {
+        return;
+    }
+
+    FVector RayOrigin;
+    FVector RayDirection;
+
+    if (!PC->DeprojectScreenPositionToWorld(
+        ScreenPosition.X,
+        ScreenPosition.Y,
+        RayOrigin,
+        RayDirection
+    ))
+    {
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("UpdateSpawnDragFromScreenPosition: deproject failed")
+        );
+
+        return;
+    }
+
+    RayDirection.Normalize();
+
+    FVector CameraLocation;
+    FRotator CameraRotation;
+
+    PC->GetPlayerViewPoint(
+        CameraLocation,
+        CameraRotation
+    );
+
+    const FVector PlaneNormal =
+        CameraRotation.Vector();
+
+    const FVector PlaneOrigin =
+        CameraLocation +
+        PlaneNormal * SpawnPlaneDistance;
+
+    const FVector RayEnd =
+        RayOrigin +
+        RayDirection * 100000.f;
+
+    const FPlane DragPlane(
+        PlaneOrigin,
+        PlaneNormal
+    );
+
+    const FVector NewLocation =
+        FMath::LinePlaneIntersection(
+            RayOrigin,
+            RayEnd,
+            DragPlane
+        );
+
+    SpawnPreviewActor->SetActorLocation(
+        NewLocation,
+        false,
+        nullptr,
+        ETeleportType::TeleportPhysics
+    );
+}
+void AAssembleLevelManager::CancelSpawnDrag()
+{
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("CancelSpawnDrag called. Preview=%s"),
+        SpawnPreviewActor
+        ? *SpawnPreviewActor->GetName()
+        : TEXT("None")
+    );
+
+    if (IsValid(SpawnPreviewActor))
+    {
+        SpawnPreviewActor->Destroy();
+    }
+
+    SpawnPreviewActor = nullptr;
+    bIsDraggingSpawnPart = false;
 }

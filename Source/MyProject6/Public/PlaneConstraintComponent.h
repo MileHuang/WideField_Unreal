@@ -7,6 +7,27 @@
 
 class USnapPointComponent;
 
+USTRUCT(BlueprintType)
+struct FPlaneMovingActorData
+{
+    GENERATED_BODY()
+
+    UPROPERTY()
+    AActor* MovingActor = nullptr;
+
+    UPROPERTY()
+    USnapPointComponent* MovingSnapPoint = nullptr;
+
+    UPROPERTY()
+    USnapPointComponent* BoardSnapPoint = nullptr;
+
+    UPROPERTY()
+    FVector LastPlaneOrigin = FVector::ZeroVector;
+
+    UPROPERTY()
+    bool bHasLastPlaneOrigin = false;
+};
+
 UCLASS(ClassGroup = (Assembly), meta = (BlueprintSpawnableComponent))
 class MYPROJECT6_API UPlaneConstraintComponent : public USceneComponent
 {
@@ -25,15 +46,6 @@ public:
         FActorComponentTickFunction* ThisTickFunction
     ) override;
 
-    UPROPERTY(BlueprintReadOnly, Category = "Plane")
-    AActor* MovingActor = nullptr;
-
-    UPROPERTY()
-    USnapPointComponent* MovingSnapPoint = nullptr;
-
-    UPROPERTY()
-    USnapPointComponent* BoardSnapPoint = nullptr;
-
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Plane")
     FComponentReference CornerA;
 
@@ -49,8 +61,11 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Plane")
     float DetachExtraDistance = 50.f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Plane")
+    UPROPERTY(BlueprintReadOnly, Category = "Plane")
     bool bIsPlaneActive = false;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Plane")
+    TArray<FPlaneMovingActorData> MovingActors;
 
     UFUNCTION(BlueprintCallable, Category = "Plane")
     void SetMovingActorWithSnapPoints(
@@ -59,12 +74,11 @@ public:
         USnapPointComponent* NewBoardSnapPoint
     );
 
-    UPROPERTY()
-    FVector LastPlaneOrigin = FVector::ZeroVector;
-
-    UPROPERTY()
-    bool bHasLastPlaneOrigin = false;
+    UFUNCTION(BlueprintCallable, Category = "Plane")
     void ClearMovingActor();
 
     void ApplyPlaneConstraint();
+
+private:
+    void ApplyPlaneConstraintToOne(int32 Index);
 };

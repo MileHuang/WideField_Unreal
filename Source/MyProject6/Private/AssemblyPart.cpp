@@ -21,7 +21,11 @@ void AAssemblyPart::Tick(float DeltaTime)
     Super::Tick(DeltaTime);
 
     CheckDetach();
-    CheckSnap();
+
+    if (!bDisableAutoSnap)
+    {
+        CheckSnap();
+    }
 }
 
 bool AAssemblyPart::IsAngleValid(
@@ -103,8 +107,16 @@ void AAssemblyPart::CheckSnap()
 
     for (USnapPointComponent* MyPoint : MySnapPoints)
     {
-        if (!MyPoint || MyPoint->bIsConnected) continue;
+        if (!MyPoint)
+        {
+            continue;
+        }
 
+        if (MyPoint->bIsConnected &&
+            !MyPoint->bAllowMultipleConnections)
+        {
+            continue;
+        }
         for (AActor* OtherActor : AllParts)
         {
             if (!OtherActor || OtherActor == this) continue;
@@ -117,7 +129,16 @@ void AAssemblyPart::CheckSnap()
 
             for (USnapPointComponent* OtherPoint : OtherSnapPoints)
             {
-                if (!OtherPoint || OtherPoint->bIsConnected) continue;
+                if (!OtherPoint)
+                {
+                    continue;
+                }
+
+                if (OtherPoint->bIsConnected &&
+                    !OtherPoint->bAllowMultipleConnections)
+                {
+                    continue;
+                }
 
                 if (!MyPoint->IsCompatibleWith(OtherPoint)) continue;
 
@@ -274,9 +295,29 @@ void AAssemblyPart::SetDragging(bool bDragging)
     bIsBeingDragged = bDragging;
 }
 
+
+USnapPointComponent* AAssemblyPart::FindSnapPointByName(FName SnapName) const
+{
+    TArray<USnapPointComponent*> SnapPoints;
+    GetComponents<USnapPointComponent>(SnapPoints);
+
+    for (USnapPointComponent* Point : SnapPoints)
+    {
+        if (Point && Point->GetFName() == SnapName)
+        {
+            return Point;
+        }
+    }
+
+    return nullptr;
+}
+
 void AAssemblyPart::ClearAllSnapConnections()
 {
-    for (USnapPointComponent* MyPoint : MySnapPoints)
+    TArray<USnapPointComponent*> SnapPoints;
+    GetComponents<USnapPointComponent>(SnapPoints);
+
+    for (USnapPointComponent* MyPoint : SnapPoints)
     {
         if (!MyPoint) continue;
 

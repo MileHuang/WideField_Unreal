@@ -26,6 +26,14 @@ public:
     void SetDragging(bool bDragging);
     UPROPERTY(BlueprintReadOnly)
     bool bIsBeingDragged = false;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+    FString SavePartName;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Save")
+    bool bDisableAutoSnap = false;
+
+    UFUNCTION(BlueprintCallable, Category = "Save")
+    USnapPointComponent* FindSnapPointByName(FName SnapName) const;
 
     UFUNCTION(BlueprintCallable, Category = "Assembly")
     void ClearAllSnapConnections();

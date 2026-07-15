@@ -7,7 +7,10 @@
 #include "AssembleLevelManager.generated.h"
 
 class UPartDatabase;
+class AAssemblyPart;
+class USnapPointComponent;
 class UMaterialInterface;
+class UDeleteAllConfirmWidget;
 class UPartInfo;
 
 UCLASS()
@@ -104,6 +107,63 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Save")
     FString GetPartNameFromActor(AActor* Actor) const;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
+    TSubclassOf<UDeleteAllConfirmWidget> DeleteAllConfirmWidgetClass;
+
+    UPROPERTY()
+    UDeleteAllConfirmWidget* DeleteAllConfirmWidget = nullptr;
+
+    UFUNCTION(BlueprintCallable, Category = "Delete")
+    void ShowDeleteAllConfirm();
+
+    UFUNCTION(BlueprintCallable, Category = "Delete")
+    void DeleteAllParts();
+    UFUNCTION(BlueprintCallable, Category = "Save")
+    void RestoreSnapConnection(
+        AAssemblyPart* PartA,
+        USnapPointComponent* SnapA,
+        AAssemblyPart* PartB,
+        USnapPointComponent* SnapB,
+        bool bIsSlideConnection
+    );
+
+    UFUNCTION(BlueprintCallable)
+    void CloseDeleteAllConfirm();
+
+    UPROPERTY(BlueprintReadOnly, Category = "Spawn Drag")
+    AAssemblyPart* SpawnPreviewActor = nullptr;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Spawn Drag")
+    bool bIsDraggingSpawnPart = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawn Drag")
+    float SpawnTraceDistance = 10000.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawn Drag")
+    float SpawnFallbackDistance = 1000.f;
+
+    UFUNCTION(BlueprintCallable, Category = "Spawn Drag")
+    void BeginSpawnDrag(TSubclassOf<AAssemblyPart> PartClass);
+
+    UFUNCTION(BlueprintCallable, Category = "Spawn Drag")
+    void UpdateSpawnDrag();
+
+    UFUNCTION(BlueprintCallable, Category = "Spawn Drag")
+    void ConfirmSpawnDrag();
+
+    UFUNCTION(BlueprintCallable, Category = "Spawn Drag")
+    void CancelSpawnDrag();
+
+    UFUNCTION(BlueprintCallable, Category = "Spawn Drag")
+    void UpdateSpawnDragFromScreenPosition(FVector2D ScreenPosition);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawn Drag")
+    float SpawnPlaneDistance = 500.f;
+
+private:
+    bool GetSpawnLocationUnderMouse(FVector& OutLocation) const;
+
 private:
     void HoverActor(AActor* NewActor);
     void UnhoverActor(AActor* OldActor);

@@ -46,7 +46,8 @@ public:
 
     UPROPERTY(BlueprintReadOnly, Category = "Snap")
     bool bIsSlideConnection = false;
-
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Snap")
+    bool bAllowMultipleConnections = false;
     UPROPERTY()
     USnapPointComponent* ConnectedSnapPoint = nullptr;
 
