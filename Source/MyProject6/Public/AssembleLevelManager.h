@@ -6,6 +6,7 @@
 #include "AssemblySaveGame.h"
 #include "AssembleLevelManager.generated.h"
 
+class UObject;
 class UPartDatabase;
 class AAssemblyPart;
 class USnapPointComponent;
@@ -69,6 +70,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Laser")
     TSubclassOf<AActor> LaserClass;
 
+    // Preserves the original meaning:
+    // true = the next L press turns the laser system on.
+    // false = the next L press turns the laser system off.
     UPROPERTY(BlueprintReadWrite, Category = "Laser")
     bool bLaserPressed = true;
 
@@ -119,6 +123,7 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Delete")
     void DeleteAllParts();
+
     UFUNCTION(BlueprintCallable, Category = "Save")
     void RestoreSnapConnection(
         AAssemblyPart* PartA,
@@ -164,7 +169,31 @@ public:
 private:
     bool GetSpawnLocationUnderMouse(FVector& OutLocation) const;
 
-private:
     void HoverActor(AActor* NewActor);
     void UnhoverActor(AActor* OldActor);
+
+    // Laser visibility and cone control.
+    void SetLaserSystemEnabled(bool bEnabled);
+    void HideAllFocusCones();
+
+    // Blueprint reflection helpers. These let the C++ manager work with
+    // Blueprint-only A_Laser, BP_FocusLen and SC_Emitter logic.
+    void CallNoParamFunction(UObject* Target, FName FunctionName) const;
+    bool GetBoolPropertyByName(
+        const UObject* Object,
+        FName PropertyName,
+        bool& OutValue
+    ) const;
+
+    // Deletion helpers. They remove the selected part and any laser actor
+    // referenced, owned or attached to it before destroying the part.
+    bool IsLaserActor(const AActor* Actor) const;
+    void CollectReferencedLaserActors(
+        UObject* Object,
+        TSet<AActor*>& OutLasers
+    ) const;
+    void DeactivateLaserOnObject(UObject* Object);
+    void ShutdownOrDestroyLaser(AActor* LaserActor);
+    void DestroyAssociatedLasers(AActor* OwnerActor);
+    void DestroyPartAndAssociatedLasers(AActor* Actor);
 };

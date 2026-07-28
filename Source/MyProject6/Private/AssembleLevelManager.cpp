@@ -1,23 +1,35 @@
 #include "AssembleLevelManager.h"
 
 #include "AssemblyPart.h"
+#include "AssemblySaveGame.h"
+#include "DeleteAllConfirmWidget.h"
 #include "PartDatabase.h"
 #include "PartInfo.h"
+#include "PlaneConstraintComponent.h"
+#include "SlideConstraintComponent.h"
+#include "SnapPointComponent.h"
 
 #include "Blueprint/UserWidget.h"
+#include "Components/ActorComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
+#include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "InputCoreTypes.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
-#include "AssembleLevelManager.h"
-#include "AssemblySaveGame.h"
-#include "SnapPointComponent.h"
-#include "SlideConstraintComponent.h"
-#include "PlaneConstraintComponent.h"
-#include "DeleteAllConfirmWidget.h"
-#include "Engine/Engine.h"
-#include "Engine/GameViewportClient.h"
+#include "UObject/UnrealType.h"
+
+namespace AssembleLevelManagerNames
+{
+    const FName HideFocus(TEXT("HideFocus"));
+    const FName ShutdownLaser(TEXT("ShutdownLaser"));
+    const FName DeactiveLaser(TEXT("DeactiveLaser"));
+    const FName DeactivateLaser(TEXT("DeactivateLaser"));
+    const FName TraceOnly(TEXT("TraceOnly"));
+}
+
 AAssembleLevelManager::AAssembleLevelManager()
 {
     PrimaryActorTick.bCanEverTick = true;
@@ -47,25 +59,45 @@ void AAssembleLevelManager::BeginPlay()
         DeleteAllBinding.bConsumeInput = true;
 
         InputComponent->KeyBindings.Add(DeleteAllBinding);
-        InputComponent->BindKey(EKeys::Delete, IE_Pressed, this, &AAssembleLevelManager::DeleteSelected);
+        InputComponent->BindKey(
+            EKeys::Delete,
+            IE_Pressed,
+            this,
+            &AAssembleLevelManager::DeleteSelected
+        );
 
-        InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AAssembleLevelManager::TogglePauseMenu);
-        InputComponent->BindKey(EKeys::M, IE_Pressed, this, &AAssembleLevelManager::TogglePauseMenu);
+        InputComponent->BindKey(
+            EKeys::Escape,
+            IE_Pressed,
+            this,
+            &AAssembleLevelManager::TogglePauseMenu
+        );
+        InputComponent->BindKey(
+            EKeys::M,
+            IE_Pressed,
+            this,
+            &AAssembleLevelManager::TogglePauseMenu
+        );
 
-        InputComponent->BindKey(EKeys::L, IE_Pressed, this, &AAssembleLevelManager::ToggleLaser);
+        InputComponent->BindKey(
+            EKeys::L,
+            IE_Pressed,
+            this,
+            &AAssembleLevelManager::ToggleLaser
+        );
         InputComponent->BindKey(
             EKeys::S,
             IE_Pressed,
             this,
             &AAssembleLevelManager::SaveAssembly
         );
-
         InputComponent->BindKey(
             EKeys::O,
             IE_Pressed,
             this,
             &AAssembleLevelManager::LoadAssembly
         );
+
         FInputKeyBinding& LeftMouseBinding =
             InputComponent->BindKey(
                 EKeys::LeftMouseButton,
@@ -76,7 +108,6 @@ void AAssembleLevelManager::BeginPlay()
 
         LeftMouseBinding.bConsumeInput = false;
     }
-
 
     if (SpawnWidgetClass)
     {
@@ -91,7 +122,6 @@ void AAssembleLevelManager::BeginPlay()
             SpawnWidget->AddToViewport();
         }
     }
-
 
     if (TipsWidgetClass)
     {
@@ -111,14 +141,16 @@ void AAssembleLevelManager::BeginPlay()
         this,
         &AAssembleLevelManager::HideAllLasers
     );
+
     LoadAssembly();
 }
+
 void AAssembleLevelManager::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
-
     TraceMouse();
 }
+
 FString AAssembleLevelManager::GetPartNameFromActor(AActor* Actor) const
 {
     if (!Actor || !PartDatabase)
@@ -141,7 +173,7 @@ FString AAssembleLevelManager::GetPartNameFromActor(AActor* Actor) const
         return TEXT("");
     }
 
-    FString MeshName =
+    const FString MeshName =
         MeshComp->GetStaticMesh()->GetName();
 
     FPartInfoData PartData;
@@ -153,12 +185,16 @@ FString AAssembleLevelManager::GetPartNameFromActor(AActor* Actor) const
 
     return TEXT("");
 }
+
 void AAssembleLevelManager::TraceMouse()
 {
     APlayerController* PC =
         UGameplayStatics::GetPlayerController(this, 0);
 
-    if (!PC) return;
+    if (!PC)
+    {
+        return;
+    }
 
     float MouseX = 0.f;
     float MouseY = 0.f;
@@ -179,12 +215,13 @@ void AAssembleLevelManager::TraceMouse()
         WorldDirection
     );
 
-    FVector Start = WorldLocation;
-    FVector End = Start + WorldDirection * TraceDistance;
+    const FVector Start = WorldLocation;
+    const FVector End =
+        Start + WorldDirection * TraceDistance;
 
     FHitResult Hit;
 
-    bool bHit =
+    const bool bHit =
         GetWorld()->LineTraceSingleByChannel(
             Hit,
             Start,
@@ -215,12 +252,18 @@ void AAssembleLevelManager::TraceMouse()
 
 void AAssembleLevelManager::HoverActor(AActor* NewActor)
 {
-    if (!NewActor || !HoverOverlayMaterial) return;
+    if (!NewActor || !HoverOverlayMaterial)
+    {
+        return;
+    }
 
     UStaticMeshComponent* MeshComp =
         NewActor->FindComponentByClass<UStaticMeshComponent>();
 
-    if (!MeshComp) return;
+    if (!MeshComp)
+    {
+        return;
+    }
 
     MeshComp->bDisallowNanite = true;
     MeshComp->MarkRenderStateDirty();
@@ -229,12 +272,18 @@ void AAssembleLevelManager::HoverActor(AActor* NewActor)
 
 void AAssembleLevelManager::UnhoverActor(AActor* OldActor)
 {
-    if (!OldActor) return;
+    if (!OldActor)
+    {
+        return;
+    }
 
     UStaticMeshComponent* MeshComp =
         OldActor->FindComponentByClass<UStaticMeshComponent>();
 
-    if (!MeshComp) return;
+    if (!MeshComp)
+    {
+        return;
+    }
 
     MeshComp->SetOverlayMaterial(nullptr);
     MeshComp->bDisallowNanite = false;
@@ -251,28 +300,42 @@ void AAssembleLevelManager::DeleteSelected()
         return;
     }
 
-    if (!HitActor) return;
-
-    if (AAssemblyPart* Part = Cast<AAssemblyPart>(HitActor))
+    if (!IsValid(HitActor))
     {
-        Part->ClearAllSnapConnections();
+        return;
     }
 
-    HitActor->Destroy();
+    AActor* ActorToDelete = HitActor;
+
+    ClosePartInfo();
+
+    if (LastHoverActor == ActorToDelete)
+    {
+        UnhoverActor(ActorToDelete);
+    }
 
     HitActor = nullptr;
     LastHoverActor = nullptr;
+
+    DestroyPartAndAssociatedLasers(ActorToDelete);
 }
+
 void AAssembleLevelManager::TogglePauseMenu()
 {
     APlayerController* PC =
         UGameplayStatics::GetPlayerController(this, 0);
 
-    if (!PC) return;
+    if (!PC)
+    {
+        return;
+    }
 
     if (!PauseWidget)
     {
-        if (!PauseWidgetClass) return;
+        if (!PauseWidgetClass)
+        {
+            return;
+        }
 
         PauseWidget =
             CreateWidget<UUserWidget>(
@@ -280,7 +343,10 @@ void AAssembleLevelManager::TogglePauseMenu()
                 PauseWidgetClass
             );
 
-        if (!PauseWidget) return;
+        if (!PauseWidget)
+        {
+            return;
+        }
 
         PauseWidget->AddToViewport();
 
@@ -301,7 +367,10 @@ void AAssembleLevelManager::ToggleSpawnWidget()
 {
     if (!SpawnWidget)
     {
-        if (!SpawnWidgetClass) return;
+        if (!SpawnWidgetClass)
+        {
+            return;
+        }
 
         SpawnWidget =
             CreateWidget<UUserWidget>(
@@ -321,9 +390,80 @@ void AAssembleLevelManager::ToggleSpawnWidget()
     }
 }
 
-void AAssembleLevelManager::HideAllLasers()
+void AAssembleLevelManager::CallNoParamFunction(
+    UObject* Target,
+    FName FunctionName
+) const
 {
-    if (!LaserClass) return;
+    if (!IsValid(Target))
+    {
+        return;
+    }
+
+    if (UFunction* Function = Target->FindFunction(FunctionName))
+    {
+        Target->ProcessEvent(Function, nullptr);
+    }
+}
+
+bool AAssembleLevelManager::GetBoolPropertyByName(
+    const UObject* Object,
+    FName PropertyName,
+    bool& OutValue
+) const
+{
+    if (!IsValid(Object))
+    {
+        return false;
+    }
+
+    const FBoolProperty* BoolProperty =
+        FindFProperty<FBoolProperty>(
+            Object->GetClass(),
+            PropertyName
+        );
+
+    if (!BoolProperty)
+    {
+        return false;
+    }
+
+    OutValue =
+        BoolProperty->GetPropertyValue_InContainer(Object);
+
+    return true;
+}
+
+void AAssembleLevelManager::HideAllFocusCones()
+{
+    if (!GetWorld())
+    {
+        return;
+    }
+
+    for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+    {
+        AActor* Actor = *It;
+
+        if (
+            IsValid(Actor) &&
+            Actor->FindFunction(AssembleLevelManagerNames::HideFocus)
+            )
+        {
+            CallNoParamFunction(
+                Actor,
+                AssembleLevelManagerNames::HideFocus
+            );
+        }
+    }
+}
+
+void AAssembleLevelManager::SetLaserSystemEnabled(bool bEnabled)
+{
+    if (!LaserClass)
+    {
+        return;
+    }
 
     TArray<AActor*> Lasers;
 
@@ -333,38 +473,283 @@ void AAssembleLevelManager::HideAllLasers()
         Lasers
     );
 
-    for (AActor* Laser : Lasers)
+    if (!bEnabled)
     {
-        if (Laser)
+        // Hiding alone is insufficient because an active Tick would continue
+        // tracing and would immediately recreate the cones.
+        for (AActor* Laser : Lasers)
         {
+            if (!IsValid(Laser))
+            {
+                continue;
+            }
+
+            Laser->SetActorTickEnabled(false);
             Laser->SetActorHiddenInGame(true);
         }
+
+        // BP_FocusLen::HideFocus hides both cones and shuts down its
+        // DivergingTraceLaser / ParallelOutputLaser chain.
+        HideAllFocusCones();
+        return;
     }
 
+    for (AActor* Laser : Lasers)
+    {
+        if (!IsValid(Laser))
+        {
+            continue;
+        }
+
+        bool bTraceOnly = false;
+        GetBoolPropertyByName(
+            Laser,
+            AssembleLevelManagerNames::TraceOnly,
+            bTraceOnly
+        );
+
+        // TraceOnly lasers must continue tracing but must stay invisible.
+        Laser->SetActorHiddenInGame(bTraceOnly);
+        Laser->SetActorTickEnabled(true);
+    }
+}
+
+void AAssembleLevelManager::HideAllLasers()
+{
+    SetLaserSystemEnabled(false);
+
+    // Preserve the original state convention: the next press shows lasers.
     bLaserPressed = true;
 }
 
 void AAssembleLevelManager::ToggleLaser()
 {
-    if (!LaserClass) return;
+    const bool bEnableLaserSystem = bLaserPressed;
 
-    TArray<AActor*> Lasers;
+    SetLaserSystemEnabled(bEnableLaserSystem);
+
+    bLaserPressed = !bLaserPressed;
+}
+
+bool AAssembleLevelManager::IsLaserActor(const AActor* Actor) const
+{
+    return
+        IsValid(Actor) &&
+        LaserClass &&
+        Actor->IsA(LaserClass);
+}
+
+void AAssembleLevelManager::CollectReferencedLaserActors(
+    UObject* Object,
+    TSet<AActor*>& OutLasers
+) const
+{
+    if (!IsValid(Object) || !LaserClass)
+    {
+        return;
+    }
+
+    // This finds Blueprint object-reference variables such as AttachedLaser,
+    // DivergingTraceLaser and ParallelOutputLaser without requiring a direct
+    // C++ dependency on those Blueprint classes.
+    for (
+        TFieldIterator<FObjectPropertyBase> PropertyIt(
+            Object->GetClass(),
+            EFieldIteratorFlags::IncludeSuper
+        );
+        PropertyIt;
+        ++PropertyIt
+        )
+    {
+        const FObjectPropertyBase* ObjectProperty = *PropertyIt;
+
+        if (!ObjectProperty)
+        {
+            continue;
+        }
+
+        UObject* ReferencedObject =
+            ObjectProperty->GetObjectPropertyValue_InContainer(Object);
+
+        AActor* ReferencedActor =
+            Cast<AActor>(ReferencedObject);
+
+        if (IsLaserActor(ReferencedActor))
+        {
+            OutLasers.Add(ReferencedActor);
+        }
+    }
+}
+
+void AAssembleLevelManager::DeactivateLaserOnObject(UObject* Object)
+{
+    if (!IsValid(Object))
+    {
+        return;
+    }
+
+    if (Object->FindFunction(AssembleLevelManagerNames::DeactiveLaser))
+    {
+        CallNoParamFunction(
+            Object,
+            AssembleLevelManagerNames::DeactiveLaser
+        );
+        return;
+    }
+
+    if (Object->FindFunction(AssembleLevelManagerNames::DeactivateLaser))
+    {
+        CallNoParamFunction(
+            Object,
+            AssembleLevelManagerNames::DeactivateLaser
+        );
+    }
+}
+
+void AAssembleLevelManager::ShutdownOrDestroyLaser(AActor* LaserActor)
+{
+    if (!IsValid(LaserActor))
+    {
+        return;
+    }
+
+    if (LaserActor->FindFunction(AssembleLevelManagerNames::ShutdownLaser))
+    {
+        CallNoParamFunction(
+            LaserActor,
+            AssembleLevelManagerNames::ShutdownLaser
+        );
+    }
+
+    // ShutdownLaser may already have destroyed or marked the actor pending kill.
+    if (IsValid(LaserActor))
+    {
+        LaserActor->Destroy();
+    }
+}
+
+void AAssembleLevelManager::DestroyAssociatedLasers(AActor* OwnerActor)
+{
+    if (!IsValid(OwnerActor) || !LaserClass)
+    {
+        return;
+    }
+
+    TSet<AActor*> LasersToDestroy;
+
+    if (IsLaserActor(OwnerActor))
+    {
+        LasersToDestroy.Add(OwnerActor);
+    }
+
+    // Capture Blueprint references before DeactiveLaser clears AttachedLaser.
+    CollectReferencedLaserActors(
+        OwnerActor,
+        LasersToDestroy
+    );
+
+    TInlineComponentArray<UActorComponent*> Components;
+    OwnerActor->GetComponents(Components);
+
+    for (UActorComponent* Component : Components)
+    {
+        CollectReferencedLaserActors(
+            Component,
+            LasersToDestroy
+        );
+    }
+
+    // Also include laser actors attached under this part.
+    TArray<AActor*> AttachedActors;
+    OwnerActor->GetAttachedActors(
+        AttachedActors,
+        true,
+        true
+    );
+
+    for (AActor* AttachedActor : AttachedActors)
+    {
+        if (IsLaserActor(AttachedActor))
+        {
+            LasersToDestroy.Add(AttachedActor);
+        }
+    }
+
+    // Include lasers spawned with Owner set to this part, or attached through
+    // a deeper attachment chain.
+    TArray<AActor*> AllLasers;
 
     UGameplayStatics::GetAllActorsOfClass(
         this,
         LaserClass,
-        Lasers
+        AllLasers
     );
 
-    for (AActor* Laser : Lasers)
+    for (AActor* Laser : AllLasers)
     {
-        if (Laser)
+        if (!IsValid(Laser))
         {
-            Laser->SetActorHiddenInGame(!bLaserPressed);
+            continue;
+        }
+
+        bool bBelongsToOwner =
+            Laser->GetOwner() == OwnerActor;
+
+        AActor* AttachParent =
+            Laser->GetAttachParentActor();
+
+        while (!bBelongsToOwner && AttachParent)
+        {
+            if (AttachParent == OwnerActor)
+            {
+                bBelongsToOwner = true;
+                break;
+            }
+
+            AttachParent =
+                AttachParent->GetAttachParentActor();
+        }
+
+        if (bBelongsToOwner)
+        {
+            LasersToDestroy.Add(Laser);
         }
     }
 
-    bLaserPressed = !bLaserPressed;
+    // Let SC_Emitter perform its own normal cleanup first.
+    DeactivateLaserOnObject(OwnerActor);
+
+    for (UActorComponent* Component : Components)
+    {
+        DeactivateLaserOnObject(Component);
+    }
+
+    // The explicit pass is a safety net in case a Blueprint component cleared
+    // its reference but failed to destroy the associated A_Laser actor.
+    for (AActor* Laser : LasersToDestroy)
+    {
+        ShutdownOrDestroyLaser(Laser);
+    }
+}
+
+void AAssembleLevelManager::DestroyPartAndAssociatedLasers(AActor* Actor)
+{
+    if (!IsValid(Actor))
+    {
+        return;
+    }
+
+    if (AAssemblyPart* Part = Cast<AAssemblyPart>(Actor))
+    {
+        Part->ClearAllSnapConnections();
+    }
+
+    DestroyAssociatedLasers(Actor);
+
+    if (IsValid(Actor))
+    {
+        Actor->Destroy();
+    }
 }
 
 void AAssembleLevelManager::ClosePartInfo()
@@ -386,13 +771,21 @@ void AAssembleLevelManager::ShowPartInfo()
 
     if (!PartInfoWidgetClass)
     {
-        UE_LOG(LogTemp, Warning, TEXT("PartInfoWidgetClass is null"));
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("PartInfoWidgetClass is null")
+        );
         return;
     }
 
     if (!PartDatabase)
     {
-        UE_LOG(LogTemp, Warning, TEXT("PartDatabase is null"));
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("PartDatabase is null")
+        );
         return;
     }
 
@@ -405,16 +798,19 @@ void AAssembleLevelManager::ShowPartInfo()
         return;
     }
 
-    FString MeshName =
+    const FString MeshName =
         MeshComp->GetStaticMesh()->GetName();
 
     FPartInfoData PartData;
 
     if (!PartDatabase->FindPartInfo(MeshName, PartData))
     {
-        UE_LOG(LogTemp, Warning,
+        UE_LOG(
+            LogTemp,
+            Warning,
             TEXT("No PartData found for %s"),
-            *MeshName);
+            *MeshName
+        );
 
         ClosePartInfo();
         return;
@@ -430,7 +826,11 @@ void AAssembleLevelManager::ShowPartInfo()
 
     if (!Widget)
     {
-        UE_LOG(LogTemp, Warning, TEXT("CreateWidget failed"));
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("CreateWidget failed")
+        );
         return;
     }
 
@@ -444,11 +844,16 @@ void AAssembleLevelManager::ShowPartInfo()
 
     CurrentPartInfoWidget = Widget;
 }
+
 void AAssembleLevelManager::SaveAssembly()
 {
     if (!PartDatabase)
     {
-        UE_LOG(LogTemp, Warning, TEXT("Save failed: PartDatabase is null"));
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("Save failed: PartDatabase is null")
+        );
         return;
     }
 
@@ -459,9 +864,13 @@ void AAssembleLevelManager::SaveAssembly()
             )
         );
 
-    if (!SaveGame) return;
+    if (!SaveGame)
+    {
+        return;
+    }
 
     TArray<AActor*> Actors;
+
     UGameplayStatics::GetAllActorsOfClass(
         GetWorld(),
         AAssemblyPart::StaticClass(),
@@ -473,20 +882,32 @@ void AAssembleLevelManager::SaveAssembly()
 
     for (AActor* Actor : Actors)
     {
-        if (!Actor) continue;
-        if (Actor->IsChildActor()) continue;
-
-        FString PartName = GetPartNameFromActor(Actor);
-
-        if (PartName.IsEmpty())
+        if (!Actor)
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("SKIP SAVE: %s no PartName"),
-                *Actor->GetName());
             continue;
         }
 
-        FString SaveID = FString::Printf(TEXT("Part_%d"), Index++);
+        if (Actor->IsChildActor())
+        {
+            continue;
+        }
+
+        const FString PartName =
+            GetPartNameFromActor(Actor);
+
+        if (PartName.IsEmpty())
+        {
+            UE_LOG(
+                LogTemp,
+                Warning,
+                TEXT("SKIP SAVE: %s no PartName"),
+                *Actor->GetName()
+            );
+            continue;
+        }
+
+        const FString SaveID =
+            FString::Printf(TEXT("Part_%d"), Index++);
 
         FAssemblyPartSaveData Data;
         Data.SaveID = SaveID;
@@ -500,15 +921,27 @@ void AAssembleLevelManager::SaveAssembly()
     for (AActor* Actor : Actors)
     {
         AAssemblyPart* Part = Cast<AAssemblyPart>(Actor);
-        if (!Part) continue;
-        if (!ActorIDMap.Contains(Actor)) continue;
+
+        if (!Part)
+        {
+            continue;
+        }
+
+        if (!ActorIDMap.Contains(Actor))
+        {
+            continue;
+        }
 
         TArray<USnapPointComponent*> SnapPoints;
         Part->GetComponents<USnapPointComponent>(SnapPoints);
 
         for (USnapPointComponent* Point : SnapPoints)
         {
-            if (!Point || !Point->bIsConnected || !Point->ConnectedSnapPoint)
+            if (
+                !Point ||
+                !Point->bIsConnected ||
+                !Point->ConnectedSnapPoint
+                )
             {
                 continue;
             }
@@ -516,13 +949,16 @@ void AAssembleLevelManager::SaveAssembly()
             AActor* OtherActor =
                 Point->ConnectedSnapPoint->GetOwner();
 
-            if (!OtherActor || !ActorIDMap.Contains(OtherActor))
+            if (
+                !OtherActor ||
+                !ActorIDMap.Contains(OtherActor)
+                )
             {
                 continue;
             }
 
-            FString ThisID = ActorIDMap[Actor];
-            FString OtherID = ActorIDMap[OtherActor];
+            const FString ThisID = ActorIDMap[Actor];
+            const FString OtherID = ActorIDMap[OtherActor];
 
             if (ThisID > OtherID)
             {
@@ -533,37 +969,51 @@ void AAssembleLevelManager::SaveAssembly()
             Conn.PartAID = ThisID;
             Conn.SnapAName = Point->GetFName();
             Conn.PartBID = OtherID;
-            Conn.SnapBName = Point->ConnectedSnapPoint->GetFName();
-            Conn.bIsSlideConnection = Point->bIsSlideConnection;
+            Conn.SnapBName =
+                Point->ConnectedSnapPoint->GetFName();
+            Conn.bIsSlideConnection =
+                Point->bIsSlideConnection;
 
             SaveGame->SavedConnections.Add(Conn);
         }
     }
 
-    bool bSuccess =
+    const bool bSuccess =
         UGameplayStatics::SaveGameToSlot(
             SaveGame,
             SaveSlotName,
             0
         );
 
-    UE_LOG(LogTemp, Warning,
+    UE_LOG(
+        LogTemp,
+        Warning,
         TEXT("SaveAssembly %s, Parts=%d Connections=%d"),
         bSuccess ? TEXT("Success") : TEXT("Failed"),
         SaveGame->SavedParts.Num(),
-        SaveGame->SavedConnections.Num());
+        SaveGame->SavedConnections.Num()
+    );
 }
+
 void AAssembleLevelManager::LoadAssembly()
 {
     if (!PartDatabase)
     {
-        UE_LOG(LogTemp, Warning, TEXT("Load failed: PartDatabase is null"));
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("Load failed: PartDatabase is null")
+        );
         return;
     }
 
     if (!UGameplayStatics::DoesSaveGameExist(SaveSlotName, 0))
     {
-        UE_LOG(LogTemp, Warning, TEXT("No save file found"));
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("No save file found")
+        );
         return;
     }
 
@@ -575,11 +1025,16 @@ void AAssembleLevelManager::LoadAssembly()
             )
         );
 
-    if (!SaveGame) return;
+    if (!SaveGame)
+    {
+        return;
+    }
 
     ClosePartInfo();
+    HideAllFocusCones();
 
     TArray<AActor*> CurrentParts;
+
     UGameplayStatics::GetAllActorsOfClass(
         GetWorld(),
         AAssemblyPart::StaticClass(),
@@ -588,10 +1043,7 @@ void AAssembleLevelManager::LoadAssembly()
 
     for (AActor* Actor : CurrentParts)
     {
-        if (Actor)
-        {
-            Actor->Destroy();
-        }
+        DestroyPartAndAssociatedLasers(Actor);
     }
 
     TMap<FString, AAssemblyPart*> LoadedPartMap;
@@ -602,17 +1054,23 @@ void AAssembleLevelManager::LoadAssembly()
 
         if (!PartDatabase->FindPartByName(Data.PartName, PartData))
         {
-            UE_LOG(LogTemp, Warning,
+            UE_LOG(
+                LogTemp,
+                Warning,
                 TEXT("Part not found by PartName: %s"),
-                *Data.PartName);
+                *Data.PartName
+            );
             continue;
         }
 
         if (!PartData.PartActorClass)
         {
-            UE_LOG(LogTemp, Warning,
+            UE_LOG(
+                LogTemp,
+                Warning,
                 TEXT("ActorClass missing: %s"),
-                *Data.PartName);
+                *Data.PartName
+            );
             continue;
         }
 
@@ -631,28 +1089,41 @@ void AAssembleLevelManager::LoadAssembly()
         LoadedPartMap.Add(Data.SaveID, NewPart);
     }
 
-    for (const FAssemblySnapConnectionSaveData& Conn : SaveGame->SavedConnections)
+    for (
+        const FAssemblySnapConnectionSaveData& Conn :
+        SaveGame->SavedConnections
+        )
     {
-        AAssemblyPart** PartAPtr = LoadedPartMap.Find(Conn.PartAID);
-        AAssemblyPart** PartBPtr = LoadedPartMap.Find(Conn.PartBID);
+        AAssemblyPart** PartAPtr =
+            LoadedPartMap.Find(Conn.PartAID);
+        AAssemblyPart** PartBPtr =
+            LoadedPartMap.Find(Conn.PartBID);
 
-        if (!PartAPtr || !PartBPtr) continue;
+        if (!PartAPtr || !PartBPtr)
+        {
+            continue;
+        }
 
         AAssemblyPart* PartA = *PartAPtr;
         AAssemblyPart* PartB = *PartBPtr;
 
-        if (!PartA || !PartB) continue;
+        if (!PartA || !PartB)
+        {
+            continue;
+        }
 
         USnapPointComponent* SnapA =
             PartA->FindSnapPointByName(Conn.SnapAName);
-
         USnapPointComponent* SnapB =
             PartB->FindSnapPointByName(Conn.SnapBName);
 
         if (!SnapA || !SnapB)
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("Restore connection failed: missing snap point"));
+            UE_LOG(
+                LogTemp,
+                Warning,
+                TEXT("Restore connection failed: missing snap point")
+            );
             continue;
         }
 
@@ -671,7 +1142,10 @@ void AAssembleLevelManager::LoadAssembly()
         TimerHandle,
         [LoadedPartMap]()
         {
-            for (const TPair<FString, AAssemblyPart*>& Pair : LoadedPartMap)
+            for (
+                const TPair<FString, AAssemblyPart*>& Pair :
+                LoadedPartMap
+                )
             {
                 if (IsValid(Pair.Value))
                 {
@@ -683,11 +1157,25 @@ void AAssembleLevelManager::LoadAssembly()
         false
     );
 
-    UE_LOG(LogTemp, Warning,
+    // When the global laser state is off, newly loaded LaserEmitter parts may
+    // spawn a laser during BeginPlay. Hide those new lasers on the next tick.
+    if (bLaserPressed)
+    {
+        GetWorldTimerManager().SetTimerForNextTick(
+            this,
+            &AAssembleLevelManager::HideAllLasers
+        );
+    }
+
+    UE_LOG(
+        LogTemp,
+        Warning,
         TEXT("LoadAssembly finished. Parts=%d Connections=%d"),
         SaveGame->SavedParts.Num(),
-        SaveGame->SavedConnections.Num());
+        SaveGame->SavedConnections.Num()
+    );
 }
+
 void AAssembleLevelManager::RestoreSnapConnection(
     AAssemblyPart* PartA,
     USnapPointComponent* SnapA,
@@ -712,13 +1200,11 @@ void AAssembleLevelManager::RestoreSnapConnection(
 
     UPlaneConstraintComponent* PlaneA =
         PartA->FindComponentByClass<UPlaneConstraintComponent>();
-
     UPlaneConstraintComponent* PlaneB =
         PartB->FindComponentByClass<UPlaneConstraintComponent>();
 
     USlideConstraintComponent* SlideA =
         PartA->FindComponentByClass<USlideConstraintComponent>();
-
     USlideConstraintComponent* SlideB =
         PartB->FindComponentByClass<USlideConstraintComponent>();
 
@@ -767,16 +1253,20 @@ void AAssembleLevelManager::RestoreSnapConnection(
         return;
     }
 
-    if (SnapA->SnapRole == ESnapRole::Parent &&
-        SnapB->SnapRole == ESnapRole::Child)
+    if (
+        SnapA->SnapRole == ESnapRole::Parent &&
+        SnapB->SnapRole == ESnapRole::Child
+        )
     {
         PartB->AttachToActor(
             PartA,
             FAttachmentTransformRules::KeepWorldTransform
         );
     }
-    else if (SnapA->SnapRole == ESnapRole::Child &&
-        SnapB->SnapRole == ESnapRole::Parent)
+    else if (
+        SnapA->SnapRole == ESnapRole::Child &&
+        SnapB->SnapRole == ESnapRole::Parent
+        )
     {
         PartA->AttachToActor(
             PartB,
@@ -794,8 +1284,11 @@ void AAssembleLevelManager::ShowDeleteAllConfirm()
 
     if (!DeleteAllConfirmWidgetClass)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("DeleteAllConfirmWidgetClass is null"));
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("DeleteAllConfirmWidgetClass is null")
+        );
         return;
     }
 
@@ -828,9 +1321,11 @@ void AAssembleLevelManager::ShowDeleteAllConfirm()
         PC->SetInputMode(InputMode);
     }
 }
+
 void AAssembleLevelManager::DeleteAllParts()
 {
     ClosePartInfo();
+    HideAllFocusCones();
 
     TArray<AActor*> Parts;
 
@@ -840,11 +1335,10 @@ void AAssembleLevelManager::DeleteAllParts()
         Parts
     );
 
+    // Clear all snap references before any actor is destroyed.
     for (AActor* Actor : Parts)
     {
-        AAssemblyPart* Part = Cast<AAssemblyPart>(Actor);
-
-        if (Part)
+        if (AAssemblyPart* Part = Cast<AAssemblyPart>(Actor))
         {
             Part->ClearAllSnapConnections();
         }
@@ -854,7 +1348,12 @@ void AAssembleLevelManager::DeleteAllParts()
     {
         if (IsValid(Actor))
         {
-            Actor->Destroy();
+            DestroyAssociatedLasers(Actor);
+
+            if (IsValid(Actor))
+            {
+                Actor->Destroy();
+            }
         }
     }
 
@@ -866,7 +1365,7 @@ void AAssembleLevelManager::DeleteAllParts()
     UE_LOG(
         LogTemp,
         Warning,
-        TEXT("Deleted all assembly parts. Count=%d"),
+        TEXT("Deleted all assembly parts and associated lasers. Count=%d"),
         Parts.Num()
     );
 }
@@ -890,6 +1389,7 @@ void AAssembleLevelManager::CloseDeleteAllConfirm()
         PC->SetInputMode(InputMode);
     }
 }
+
 bool AAssembleLevelManager::GetSpawnLocationUnderMouse(
     FVector& OutLocation
 ) const
@@ -899,13 +1399,21 @@ bool AAssembleLevelManager::GetSpawnLocationUnderMouse(
 
     if (!PC)
     {
-        UE_LOG(LogTemp, Error, TEXT("GetSpawnLocation: PC null"));
+        UE_LOG(
+            LogTemp,
+            Error,
+            TEXT("GetSpawnLocation: PC null")
+        );
         return false;
     }
 
     if (!GEngine || !GEngine->GameViewport)
     {
-        UE_LOG(LogTemp, Error, TEXT("GetSpawnLocation: GameViewport null"));
+        UE_LOG(
+            LogTemp,
+            Error,
+            TEXT("GetSpawnLocation: GameViewport null")
+        );
         return false;
     }
 
@@ -913,7 +1421,11 @@ bool AAssembleLevelManager::GetSpawnLocationUnderMouse(
 
     if (!GEngine->GameViewport->GetMousePosition(MousePosition))
     {
-        UE_LOG(LogTemp, Error, TEXT("GetSpawnLocation: viewport mouse position failed"));
+        UE_LOG(
+            LogTemp,
+            Error,
+            TEXT("GetSpawnLocation: viewport mouse position failed")
+        );
         return false;
     }
 
@@ -927,7 +1439,11 @@ bool AAssembleLevelManager::GetSpawnLocationUnderMouse(
         WorldDirection
     ))
     {
-        UE_LOG(LogTemp, Error, TEXT("GetSpawnLocation: deproject failed"));
+        UE_LOG(
+            LogTemp,
+            Error,
+            TEXT("GetSpawnLocation: deproject failed")
+        );
         return false;
     }
 
@@ -944,7 +1460,11 @@ void AAssembleLevelManager::BeginSpawnDrag(
 {
     if (!PartClass)
     {
-        UE_LOG(LogTemp, Error, TEXT("BeginSpawnDrag: PartClass NULL"));
+        UE_LOG(
+            LogTemp,
+            Error,
+            TEXT("BeginSpawnDrag: PartClass NULL")
+        );
         return;
     }
 
@@ -971,7 +1491,6 @@ void AAssembleLevelManager::BeginSpawnDrag(
         CameraRotation.Vector() * SpawnPlaneDistance;
 
     FActorSpawnParameters SpawnParams;
-
     SpawnParams.SpawnCollisionHandlingOverride =
         ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
@@ -986,15 +1505,16 @@ void AAssembleLevelManager::BeginSpawnDrag(
     if (!SpawnPreviewActor)
     {
         UE_LOG(LogTemp, Error, TEXT("Spawn FAILED"));
-    }
-    else
-    {
-        UE_LOG(LogTemp, Warning,
-            TEXT("Spawn SUCCESS: %s  Location=%s"),
-            *SpawnPreviewActor->GetName(),
-            *SpawnPreviewActor->GetActorLocation().ToString());
+        return;
     }
 
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("Spawn SUCCESS: %s  Location=%s"),
+        *SpawnPreviewActor->GetName(),
+        *SpawnPreviewActor->GetActorLocation().ToString()
+    );
 
     bIsDraggingSpawnPart = true;
 
@@ -1009,6 +1529,16 @@ void AAssembleLevelManager::BeginSpawnDrag(
         TEXT("Begin spawn drag: %s"),
         *SpawnPreviewActor->GetName()
     );
+
+    // A LaserEmitter preview can spawn its laser during BeginPlay. Keep that
+    // newly spawned laser off when the global laser system is currently off.
+    if (bLaserPressed)
+    {
+        GetWorldTimerManager().SetTimerForNextTick(
+            this,
+            &AAssembleLevelManager::HideAllLasers
+        );
+    }
 }
 
 void AAssembleLevelManager::UpdateSpawnDrag()
@@ -1032,12 +1562,16 @@ void AAssembleLevelManager::UpdateSpawnDrag()
         ETeleportType::TeleportPhysics
     );
 }
+
 void AAssembleLevelManager::ConfirmSpawnDrag()
 {
     if (!IsValid(SpawnPreviewActor))
     {
-        UE_LOG(LogTemp, Error,
-            TEXT("ConfirmSpawnDrag: preview actor invalid"));
+        UE_LOG(
+            LogTemp,
+            Error,
+            TEXT("ConfirmSpawnDrag: preview actor invalid")
+        );
 
         SpawnPreviewActor = nullptr;
         bIsDraggingSpawnPart = false;
@@ -1060,7 +1594,6 @@ void AAssembleLevelManager::ConfirmSpawnDrag()
 
     SpawnPreviewActor = nullptr;
     bIsDraggingSpawnPart = false;
-
 }
 
 void AAssembleLevelManager::UpdateSpawnDragFromScreenPosition(
@@ -1095,7 +1628,6 @@ void AAssembleLevelManager::UpdateSpawnDragFromScreenPosition(
             Warning,
             TEXT("UpdateSpawnDragFromScreenPosition: deproject failed")
         );
-
         return;
     }
 
@@ -1111,11 +1643,9 @@ void AAssembleLevelManager::UpdateSpawnDragFromScreenPosition(
 
     const FVector PlaneNormal =
         CameraRotation.Vector();
-
     const FVector PlaneOrigin =
         CameraLocation +
         PlaneNormal * SpawnPlaneDistance;
-
     const FVector RayEnd =
         RayOrigin +
         RayDirection * 100000.f;
@@ -1139,6 +1669,7 @@ void AAssembleLevelManager::UpdateSpawnDragFromScreenPosition(
         ETeleportType::TeleportPhysics
     );
 }
+
 void AAssembleLevelManager::CancelSpawnDrag()
 {
     UE_LOG(
@@ -1152,7 +1683,7 @@ void AAssembleLevelManager::CancelSpawnDrag()
 
     if (IsValid(SpawnPreviewActor))
     {
-        SpawnPreviewActor->Destroy();
+        DestroyPartAndAssociatedLasers(SpawnPreviewActor);
     }
 
     SpawnPreviewActor = nullptr;
